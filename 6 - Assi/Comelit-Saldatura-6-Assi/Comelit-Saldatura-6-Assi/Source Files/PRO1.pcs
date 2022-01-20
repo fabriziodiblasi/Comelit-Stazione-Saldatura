@@ -136,56 +136,66 @@ Sub Main
 
 
 	timeout = 60000		
-	if DEBUG_MODE = 0 then
-		do 
-			if override_velocita > 0 and override_velocita <= 100 then
-				ExtSpeed override_velocita
-			end if
-	
-			Call robotExternalInfo()
+
+	do 
+		if override_velocita > 0 and override_velocita <= 100 then
+			ExtSpeed override_velocita
+		end if
+
+		Call robotExternalInfo()
 	'		ret_val = defWorkingArea()
-			' numero della missione
+		' numero della missione
 	'		DefIO num_missione = Integer, 592
-		
-			I[INT0_NUM_MISSIONE] = plc_num_missione
-			fwd_id_missione = I[INT0_NUM_MISSIONE]
 
-			if io[UI611_homing] = ON then
-				PrintDbg "missione home"
-				Call m0010_Homing()
-			else 
-				SELECT CASE I[INT0_NUM_MISSIONE]
-					CASE 1
-						PrintDbg "missione 1 - pick di una nuova ferrite"
-						fwd_id_missione = 1
-						robot_in_home = 0
-						wait plc_start_missione = 1 or IO[UI611_homing] = ON
-						
-						I[INT1_ID_ROCCHETTO] = plc_id_rocchetto
-						Call m0001_pickVassoio()
+		I[INT0_NUM_MISSIONE] = plc_num_missione
+		fwd_id_missione = I[INT0_NUM_MISSIONE]
 
-						I[INT2_ULTIMA_MISSIONE_ESEGUITA] = 1			
+		if io[UI611_homing] = ON then
+			PrintDbg "missione home"
+			Call m0010_Homing()
+		else 
+			SELECT CASE I[INT0_NUM_MISSIONE]
+				CASE 1
+					PrintDbg "missione 1 - pick di una nuova ferrite"
+					fwd_id_missione = 1
+					robot_in_home = 0
+					wait plc_start_missione = 1 or IO[UI611_homing] = ON
+				
+					I[INT1_ID_ROCCHETTO] = plc_id_rocchetto
+					Call m0001_pickVassoio()
 
-					CASE 2
-						PrintDbg "missione 2 - place ferrite taglio DX"
-						fwd_id_missione = 2
-						robot_in_home = 0
-						wait plc_start_missione = 1 or IO[UI611_homing] = ON
-						Call m0002_placeInserimentoLamelle()
+					I[INT2_ULTIMA_MISSIONE_ESEGUITA] = 1			
 
-						I[INT2_ULTIMA_MISSIONE_ESEGUITA] = 2					
+				CASE 2
+					PrintDbg "missione 2 - place ferrite taglio DX"
+					fwd_id_missione = 2
+					robot_in_home = 0
+					wait plc_start_missione = 1 or IO[UI611_homing] = ON
+					Call m0002_placeInserimentoLamelle()
+
+					I[INT2_ULTIMA_MISSIONE_ESEGUITA] = 2					
+			
+				CASE Else
+					if DEBUG_MODE == 1 then
+						' definisco una variabile temporanea che serve a tenere il conto
+						' dei rocchetti
+						dim num_rocc as integer
+						For num_rocc = 0 To 62 Step 1
+							' imposto il numero del rocchetto da prelevare
+							I[INT1_ID_ROCCHETTO] = num_rocc
+							Call m0001_pickVassoio()
+							Delay 1000 
+							Call m0002_placeInserimentoLamelle()
+						Next
+
+					end if	
+
+			END SELECT
+		end if
 
 
-				END SELECT
-			end if
+	loop until false
 
-
-		loop until false
-
-	else
-		'ret_val = m666_Debug_mission()
-		ret_val = 0
-	end if
 
 End Sub
 
@@ -439,6 +449,12 @@ Sub m0001_pickVassoio()
 	interasse_row = plc_interasse_row_vass
 	fwd_interasse_row_vass = interasse_row
 
+
+	' impostazioni di debug
+	if DEBUG_MODE == 1 then
+		interasse_col = 50
+		interasse_row = 50
+	end if
 	' ----------------------------------------------------------
 	' ------------   Calcolo coordinate matrice    -------------
 	' ----------------------------------------------------------
