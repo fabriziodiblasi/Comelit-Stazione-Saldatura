@@ -1,0 +1,531 @@
+'!TITLE "MAIN"
+#include "VAR_TAB.h"
+#include "DIO_TAB.h"
+
+' --------------------------  variabili globali -----------------------------------  
+
+	' Posizione della coordinata in alto a sinistra del vassoio dei rocchetti
+	Dim ORIGIN As Position
+
+	Dim DEBUG_MODE as Integer
+  
+
+
+' ---------------------------------------------------------------------------------
+
+
+
+' --------------------------  ingressi PLC -> ROBOT --------------------------------
+	' numero della ferrite per fare il pickup
+	DefIO plc_id_rocchetto = short, 560
+
+	' numero della missione
+	DefIO plc_num_missione = short, 592
+
+	' bit start missione
+	DefIO plc_start_missione = Bit, 608
+
+	' bit enable_in nell'area di interferenza e di lavoro
+	DefIO plc_enable_in = Bit, 609
+
+	' bit enable_exit per l'uscita dall'area di lavoro
+	DefIO enable_exit = Bit, 610
+
+	' bit di esecuzione di posizionamento in home
+	DefIO esegui_homing = Bit, 611
+
+	' override velocita'
+	DefIO override_velocita = short, 672
+
+	' interasse tra righe del vassoio
+	DefIO plc_interasse_col_vass = short, 640
+
+	' interasse tra colonne del vassoio
+	DefIO plc_interasse_row_vass = short, 656
+
+	' larghezza del rocchetto
+	DefIO plc_larghezza_rocchetto = short, 688
+
+	' profondita' della ferrite
+	DefIO plc_profondita_rocchetto = short, 704
+
+	' altezza della ferrite
+	DefIO plc_altezza_rocchetto = short, 720
+
+' ---------------------------------------------------------------------------------
+
+
+
+
+' --------------------------  ingressi ROBOT -> PLC --------------------------------
+
+
+	'return numero della ferrite da prendere
+	DefIO fwd_id_rocchetto = short, 816
+
+	' return numero della missione caricata
+	DefIO fwd_id_missione = short, 848
+
+	' feedback al plc che la missione ? in esecuzione
+	defio fwd_mission_running= Bit, 864
+
+	' feedback al plc che il robot ? in posizione nell'area di lavoro per il pick and place
+	defio fwd_in_pos = Bit, 865
+
+	' feedback al plc che il robot ? fuori dall'area di lavoro per il pick and place
+	defio fwd_out_of_area = Bit, 866
+
+
+	' feedback al plc che il robot e' fuori dall'area di lavoro per il pick and place
+	defio fwd_robot_in_home = Bit, 879
+
+
+
+	' feedback al plc interasse tra righe del vassoio
+	DefIO fwd_interasse_col_vass = short, 896
+
+	' feedback al plc interasse tra colonne del vassoio
+	DefIO fwd_interasse_row_vass = short, 912
+
+	' feedback al plc dell'attuale velocità robot
+	defio fwd_speed_vel = short, 928
+
+	' feedback al plc della larghezza del rocchetto
+	defio fwd_larghezza_rocchetto = short, 944
+
+	' feedback al plc della profondita del rocchetto
+	defio fwd_profondita_rocchetto = short, 960
+
+	' feedback al plc della altezza del rocchetto
+	defio fwd_altezza_rocchetto = short, 976
+
+' ---------------------------------------------------------------------------------
+
+
+
+
+' ###################################################################################
+' ###################################################################################
+' ##########################             MAIN              ##########################
+' ###################################################################################
+' ###################################################################################
+
+
+Sub Main
+	DEBUG_MODE = 0
+	TakeArm Keep = 0
+'	motor on
+	ChangeTool  1
+
+	'definizione del punto di pick in alto a sinistra  
+	ORIGIN =  P[P0_origine_vassoio]
+'	old version
+	dim ret_val as integer
+	dim robot_in_home as Integer
+	Dim actual_pos As Position
+
+	Dim timeout as integer
+'	SpeedMode 0 
+	HighPathAccuracy True  
+	Accel 100, 100
+	PayLoad 850
+
+
+
+'	ExtAccel 100, 100
+
+
+	timeout = 60000		
+	if DEBUG_MODE = 0 then
+		do 
+			if override_velocita > 0 and override_velocita <= 100 then
+				ExtSpeed override_velocita
+			end if
+	
+			Call robotExternalInfo()
+	'		ret_val = defWorkingArea()
+			' numero della missione
+	'		DefIO num_missione = Integer, 592
+		
+			I[INT0_NUM_MISSIONE] = plc_num_missione
+			fwd_id_missione = I[INT0_NUM_MISSIONE]
+
+			if io[UI611_homing] = ON then
+				PrintDbg "missione home"
+				Call m0010_Homing()
+			else 
+				SELECT CASE I[INT0_NUM_MISSIONE]
+					CASE 1
+						PrintDbg "missione 1 - pick di una nuova ferrite"
+						fwd_id_missione = 1
+						robot_in_home = 0
+						wait plc_start_missione = 1 or IO[UI611_homing] = ON
+						
+						I[INT1_ID_ROCCHETTO] = plc_id_rocchetto
+						Call m0001_pickVassoio()
+
+						I[INT2_ULTIMA_MISSIONE_ESEGUITA] = 1			
+
+					CASE 2
+						PrintDbg "missione 2 - place ferrite taglio DX"
+						fwd_id_missione = 2
+						robot_in_home = 0
+						wait plc_start_missione = 1 or IO[UI611_homing] = ON
+						Call m0002_placeInserimentoLamelle()
+
+						I[INT2_ULTIMA_MISSIONE_ESEGUITA] = 2					
+
+
+				END SELECT
+			end if
+
+
+		loop until false
+
+	else
+		'ret_val = m666_Debug_mission()
+		ret_val = 0
+	end if
+
+End Sub
+
+
+' ###################################################################################
+' ###################################################################################
+' ##########################           FUNZIONI            ##########################
+' ###################################################################################
+' ###################################################################################
+
+' -----------------------------------------------------------------------------------
+' --------------------------robotExternalInfo----------------------------------------
+' -----------------------------------------------------------------------------------
+
+
+Sub robotExternalInfo()
+
+	fwd_speed_vel= CurExtSpd
+	' PrintDbg fwd_speed_vel
+
+	fwd_larghezza_rocchetto = plc_larghezza_rocchetto
+
+	' feedback al plc della profondita del rocchetto
+	fwd_profondita_rocchetto = plc_profondita_rocchetto
+
+	' feedback al plc della altezza del rocchetto
+	fwd_altezza_rocchetto = plc_altezza_rocchetto
+
+End Sub 
+
+' -----------------------------------------------------------------------------------
+' -----------------------------------RESET I/O---------------------------------------
+' -----------------------------------------------------------------------------------
+
+
+sub resetAreaScambioRobotToPLC() 
+' 	Set the I/O port numbers "848" through "878" to OFF
+'   Reset IO[848 To 878]
+	Reset IO[800 To 900]
+end sub 
+
+
+' -----------------------------------------------------------------------------------
+' -----------------------------------MOVE ON POINT-----------------------------------
+' -----------------------------------------------------------------------------------
+
+
+
+Sub moveOnPoint(pt as Position)
+	' movimentazione del robot in una posizione nei pressi del punto finale
+	' in fuori ingombro
+	dim speed_param_approccio as integer
+
+	dim dist_approccio as integer
+
+	dist_approccio = 65
+	
+	Dim motor_state As Integer
+	Dim curr_pos As Position
+
+	Dim x as single
+	Dim z as single
+
+'	Acquire the motor on status
+	motor_state = MotorState
+ 
+
+	fwd_out_of_area = 1 ' PLC 44.2
+' 	wait DEBUG_MODE=1 or enable_in = 1
+
+	fwd_in_pos = 0
+
+
+	' switch case per la scelta dei punti di passaggio in base alla missione robot
+	' ---------------------------------------------------------------------------------------------------------
+	' 							MOVIMENTAZIONE VERSO IL PUNTO DI APPROCCIO
+	' ---------------------------------------------------------------------------------------------------------
+
+	' IN BASE ALLA MISSIONE RICHIESTA AL ROBOT, IMPOSTO I PUNTI DI PASSAGGIO
+
+	speed_param_approccio = 50 
+	Select Case  I[INT0_NUM_MISSIONE]
+		Case 1
+			' la missione 2 termina con il posizionamento del robot in una posizione sicura
+			' è possibile effettuare direttamente l'approccio
+			Approach P, pt, @P dist_approccio, S = 100
+		
+		Case 2
+			
+			Move P, @P  P[P15_Waypoint_m002_Place], Speed = speed_param_approccio
+			Move P, @P  P[P16_Waypoint_m002_Place], Speed = speed_param_approccio
+			Move P, @P  P[P17_Waypoint_m002_Place], Speed = speed_param_approccio
+			Move P, @P  P[P18_Waypoint_m002_Place], Speed = speed_param_approccio
+			Move P, @0  P[P19_Waypoint_m002_Place], Speed = speed_param_approccio
+
+	End Select
+
+
+	wait DEBUG_MODE=1 or (plc_enable_in = ON)  or (IO[UI611_homing] = ON)  ' PLC 12.1
+
+	if IO[UI611_homing] = ON then
+		Exit Sub 
+	end if
+
+	' aspetto che inizi la rampa di accellerazione per comunicare al PLC che sto nell'area di ingombro
+	WaitMotion 5	
+	' setto a 0 il bit per informare il PLC che sono in ingombro
+	fwd_out_of_area = 0 ' PLC 44.2
+
+	' ---------------------------------------------------------------------------------------------------------
+	' 						MOVIMENTAZIONE VERSO IL PUNTO DI LAVORO (PICK/PLACE)
+	' ---------------------------------------------------------------------------------------------------------
+
+
+	Move L, @0 pt, s=20
+
+
+	' attesa dell'avenuta movimentazione
+	WaitMotion 5
+	delay 100
+
+	'informo il plc che sono arrivato a destinazione in modo che possa chiudere le pinze
+	fwd_in_pos = 1 'PLC 44.1
+
+	' aspetto che il plc informi il robot che pu? andarsene dall'area di lavoro
+	' movimentazione del robot fuori dal punto finale e posizionamento in fuori ingombro
+	wait DEBUG_MODE=1 or (enable_exit = ON)  or (IO[UI611_homing] = ON)  
+	
+	if IO[UI611_homing] = ON then
+		Exit Sub 
+	end if
+
+	' ---------------------------------------------------------------------------------------------------------
+	' 						MOVIMENTAZIONE VERSO FUORI INGOBRO DEL PUNTO DI LAVORO (PICK/PLACE)
+	' ---------------------------------------------------------------------------------------------------------
+
+
+	Select Case  I[INT0_NUM_MISSIONE]
+
+		Case 1
+
+			' è possibile far eseguire al robot una movimentazione dal punto 19 al 15 in ordine decrescente
+			PrintDbg "dal punto di place vado a ritroso per andare verso il punto di pick"
+
+			Depart L, @P dist_approccio, S = 100
+			
+	
+		Case 2
+			' essendo il punto di place in una posizione critica per sicurezza faccio passare il robot
+			' presso punti presi a priori per mandarlo fuori ingombro
+			PrintDbg "dal vassoio mi muovo verso il punto di approccio di place"
+			Move P, @P  P[P19_Waypoint_m002_Place], Speed = speed_param_approccio
+			Move P, @P  P[P18_Waypoint_m002_Place], Speed = speed_param_approccio
+			Move P, @P  P[P17_Waypoint_m002_Place], Speed = speed_param_approccio
+			Move P, @P  P[P16_Waypoint_m002_Place], Speed = speed_param_approccio
+			Move P, @P  P[P15_Waypoint_m002_Place], Speed = speed_param_approccio
+
+	End Select
+	'aspetto che i motori inizino la decellerazione in tal caso imposto che sono fuori ingombro
+
+	fwd_out_of_area = 1
+
+	'r = resetAreaPLC()
+	fwd_in_pos = 0
+
+end Sub  
+
+
+
+' -----------------------------------------------------------------------------------
+' -------------------------------------HOMING----------------------------------------
+' -----------------------------------------------------------------------------------
+
+Sub m0010_Homing() 
+	' posizionamento in home e invio feedback posizione raggiunta
+	Dim actual_pos As Position
+
+	dim Length as single
+	dim ret_val as integer
+	Length = 60
+	
+	Dim motor_state As Integer
+
+'	Acquire the motor on status
+	motor_state = MotorState
+
+
+	' -----------------------------------------
+	' MOVIMENTAZIONE VERSO IL PTO DI HOME
+	' -----------------------------------------
+
+	actual_pos = CurPos
+	' SE L'ATTUALE POSIZIONE DEL ROBOT LO PERMETTE LO ALZO DI 60 cm
+	If OutRange(DevH(DestPos, P(0, 0, -Length))) = 0 Then
+		Depart P, Length
+	End If
+
+	' SE L'ATTUALE POSIZIONE DEL ROBOT LO PERMETTE LO FACCIO ANDARE VERSO LA BASE DI 60 cm	
+	If OutRange(DevH(DestPos, P(0, -Length, 0))) = 0 Then
+		Depart P, Length
+	End If
+
+	' MOVIMENTAZIONE DEL ROBOT PRESSO IL PUNTO FINALE DI HOME
+	Move P, J[J2_Homing_Point]
+
+	fwd_robot_in_home = 1
+	fwd_out_of_area = 1
+	
+End sub
+
+
+
+' -----------------------------------------------------------------------------------
+' -------------------------------PICK SU VASSOIO-------------------------------------
+' -----------------------------------------------------------------------------------
+
+
+Sub m0001_pickVassoio()
+	PrintDbg "Method Pick da vassoio"
+	fwd_mission_running = 1
+	
+	fwd_id_rocchetto = I[INT1_ID_ROCCHETTO]
+
+	' ----------------------------------------------------------
+	' -----------------Parametri rocchetto ---------------------
+	' ----------------------------------------------------------
+			
+	dim larghezza_rocc as single 'larghezza del rocchetto [mm]
+	larghezza_rocc = plc_larghezza_rocchetto
+	fwd_larghezza_rocchetto = larghezza_rocc
+	
+	dim altezza_rocc as single ' altezza del rocchetto [mm]
+	altezza_rocc = plc_altezza_rocchetto
+	fwd_altezza_rocchetto = altezza_rocc
+	
+	
+	dim prof_rocc as single	' profondità del rocchetto [mm]
+	prof_rocc = plc_profondita_rocchetto
+	fwd_profondita_rocchetto = 	prof_rocc
+
+	' ----------------------------------------------------------
+	' ------------------ Parametri vassoio ---------------------
+	' ----------------------------------------------------------
+
+	dim interasse_col as single ' altezza del rocchetto [mm]
+	interasse_col = plc_interasse_col_vass
+	fwd_interasse_col_vass = interasse_col
+	
+	
+	dim interasse_row as single ' altezza del rocchetto [mm]
+	interasse_row = plc_interasse_row_vass
+	fwd_interasse_row_vass = interasse_row
+
+	' ----------------------------------------------------------
+	' ------------   Calcolo coordinate matrice    -------------
+	' ----------------------------------------------------------
+
+	Dim max_col As Integer
+	Dim max_row As Integer
+	
+	max_col = 9
+    max_row = 7
+	
+	' calcolo l'indice di riga e colonna della ferrite
+	Dim row As Integer
+	Dim col As Integer
+	row = I[INT1_ID_ROCCHETTO] \ max_row
+	col = I[INT1_ID_ROCCHETTO] Mod max_row
+
+	' ----------------------------------------------------------
+	' ------------  Calcolo coordinate X - Y - Z   -------------
+	' ----------------------------------------------------------
+
+
+	Dim X As Single
+	Dim Y As Single	
+	' prelevo le coordinate di origine
+	X = posx(P[P0_origine_vassoio])
+	Y = posy(P[P0_origine_vassoio])
+
+	' il vassoio delle ferriti viene percorso dal robot in questo modo:
+	' Dall'origine calcolo un offset in X ed Y in base al numero della ferrite che devo prelevare
+	' la posizione X scorre le righe
+	' la posizione Y scorre le colonne
+	X = X - interasse_col * col	
+	Y = Y - interasse_row * row
+
+	' se ho terminato la riga di rocchetti sul vassoio, allora devo aggiungere un offeset 
+	
+	if row > 9 then
+		Y = y - interasse_row	
+	end if
+
+
+	' ----------------------------------------------------------
+	' -----     Definizione del punto finale di pick       -----
+	' ----------------------------------------------------------
+
+	' defizione del punto di pick
+	Dim pick_pos As Position
+	pick_pos = P[P0_origine_vassoio]
+
+	' inserimento delle coordinate X ed Y calcolate nel punto di pick	
+	letx pick_pos = X
+	lety pick_pos = Y
+	
+	'salvataggio del punto di prelievo nelle varibili di sistema
+	
+	P[P10_Actual_Pick_Point]=pick_pos
+
+	' ----------------------------------------------------------
+	' 			Richiamo della funzione per effettuare 
+	' 				il movimento finale di pick       
+	' ----------------------------------------------------------
+	
+	Call moveOnPoint(pick_pos)
+
+	' se tutto okay allora restituisco 1 ma prima alzo l'asta
+	fwd_mission_running = 0
+
+
+End Sub
+
+
+' -----------------------------------------------------------------------------------
+' -------------------------------PLACE SU INSERIMENTO--------------------------------
+' -----------------------------------------------------------------------------------
+
+
+Sub m0002_placeInserimentoLamelle()
+	PrintDbg "Method Place su inserimento"
+	fwd_mission_running = 1
+
+	
+	Call moveOnPoint(p[P1_place_rocchetto])
+
+	
+ 	' se tutto okay allora restituisco 1
+	fwd_mission_running = 0
+End Sub
+
+
+

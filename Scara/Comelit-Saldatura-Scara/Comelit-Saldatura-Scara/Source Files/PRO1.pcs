@@ -1,0 +1,75 @@
+'!TITLE "MAIN"
+#include "VAR_TAB.h"
+#include "DIO_TAB.h"
+
+' --------------------------  variabili globali -----------------------------------  
+
+	' Posizione della coordinata in alto a sinistra del vassoio dei rocchetti
+	Dim ORIGIN As Position
+
+	Dim DEBUG_MODE as Integer
+  
+
+
+' ---------------------------------------------------------------------------------
+
+
+
+' --------------------------  ingressi PLC -> ROBOT --------------------------------
+	' numero della missione
+	DefIO plc_num_missione = short, 592
+
+	' bit start missione
+	DefIO plc_start_missione = Bit, 608
+
+	' bit enable_in nell'area di interferenza e di lavoro
+	DefIO plc_enable_in = Bit, 609
+
+	' bit enable_exit per l'uscita dall'area di lavoro
+	DefIO enable_exit = Bit, 610
+
+	' bit di esecuzione di posizionamento in home
+	DefIO esegui_homing = Bit, 611
+
+	' override velocita'
+	DefIO override_velocita = short, 672
+
+
+
+' ---------------------------------------------------------------------------------
+
+
+
+
+' --------------------------  ingressi ROBOT -> PLC --------------------------------
+
+
+	' return numero della missione caricata
+	DefIO fwd_id_missione = short, 848
+
+	' feedback al plc che la missione ? in esecuzione
+	defio fwd_mission_running= Bit, 864
+
+	' feedback al plc che il robot ? in posizione nell'area di lavoro per il pick and place
+	defio fwd_in_pos = Bit, 865
+
+	' feedback al plc che il robot ? fuori dall'area di lavoro per il pick and place
+	defio fwd_out_of_area = Bit, 866
+
+
+	' feedback al plc che il robot e' fuori dall'area di lavoro per il pick and place
+	defio fwd_robot_in_home = Bit, 879
+
+	' feedback al plc dell'attuale velocit? robot
+	defio fwd_speed_vel = short, 928
+
+
+' ---------------------------------------------------------------------------------
+
+
+
+Sub Main
+	TakeArm Keep = 0
+	
+	
+End Sub
