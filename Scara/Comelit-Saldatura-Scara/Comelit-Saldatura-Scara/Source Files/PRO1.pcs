@@ -4,9 +4,6 @@
 
 ' --------------------------  variabili globali -----------------------------------  
 
-	' Posizione della coordinata in alto a sinistra del vassoio dei rocchetti
-	Dim ORIGIN As Position
-
 	Dim DEBUG_MODE as Integer
   
 
@@ -68,8 +65,294 @@
 
 
 
+' ###################################################################################
+' ###################################################################################
+' ##########################             MAIN              ##########################
+' ###################################################################################
+' ###################################################################################
+
+
+
 Sub Main
+	DEBUG_MODE = 0
 	TakeArm Keep = 0
+'	motor on
+	ChangeTool  1
+
+'	old version
+	dim ret_val as integer
+	dim robot_in_home as Integer
+	Dim actual_pos As Position
+
+	Dim timeout as integer
+'	SpeedMode 0 
+	HighPathAccuracy True  
+	Accel 100, 100
+	PayLoad 850
+
+
+
+'	ExtAccel 100, 100
+
+
+	timeout = 60000		
+
+	do 
+		if override_velocita > 0 and override_velocita <= 100 then
+			ExtSpeed override_velocita
+		end if
+
+		Call robotExternalInfo()
+		I[INT0_NUM_MISSIONE] = plc_num_missione
+		fwd_id_missione = I[INT0_NUM_MISSIONE]
+
+		if io[UI611_homing] = ON then
+			PrintDbg "missione home"
+			Call m0010_Homing()
+		else 
+			SELECT CASE I[INT0_NUM_MISSIONE]
+				CASE 1
+					PrintDbg "missione 1 - pick di una nuova ferrite"
+					fwd_id_missione = 1
+					robot_in_home = 0
+					wait plc_start_missione = 1 or IO[UI611_homing] = ON
+					Call m0001_PickLamelle()
+
+					I[INT2_ULTIMA_MISSIONE_ESEGUITA] = 1			
+
+				CASE 2
+					PrintDbg "missione 2 - place ferrite taglio DX"
+					fwd_id_missione = 2
+					robot_in_home = 0
+					wait plc_start_missione = 1 or IO[UI611_homing] = ON
+					Call m0002_PlaceLamelle()
+
+					I[INT2_ULTIMA_MISSIONE_ESEGUITA] = 2					
+			
+				CASE Else
+					if DEBUG_MODE == 1 then
+						' definisco una variabile temporanea che serve a tenere il conto
+						' dei rocchetti
+						dim num_rocc as integer
+						For num_rocc = 0 To 62 Step 1
+							' imposto il numero del rocchetto da prelevare
+							
+							Call m0001_PickLamelle()
+							Delay 1000 
+							Call m0002_PlaceLamelle()
+						Next
+
+					end if	
+
+			END SELECT
+		end if
+
+
+	loop until false
+
+
 	
 	
+End Sub
+
+
+' ###################################################################################
+' ###################################################################################
+' ##########################           FUNZIONI            ##########################
+' ###################################################################################
+' ###################################################################################
+
+' -----------------------------------------------------------------------------------
+' --------------------------robotExternalInfo----------------------------------------
+' -----------------------------------------------------------------------------------
+
+
+Sub robotExternalInfo()
+
+	fwd_speed_vel= CurExtSpd
+	' PrintDbg fwd_speed_vel
+
+
+End Sub 
+
+' -----------------------------------------------------------------------------------
+' -----------------------------------RESET I/O---------------------------------------
+' -----------------------------------------------------------------------------------
+
+
+sub resetAreaScambioRobotToPLC() 
+' 	Set the I/O port numbers "848" through "878" to OFF
+'   Reset IO[848 To 878]
+	Reset IO[800 To 900]
+end sub 
+
+
+' -----------------------------------------------------------------------------------
+' -----------------------------------MOVE ON POINT-----------------------------------
+' -----------------------------------------------------------------------------------
+
+
+
+Sub moveOnPoint(pt as Position)
+	' movimentazione del robot in una posizione nei pressi del punto finale
+	' in fuori ingombro
+	dim speed_param_approccio as integer
+
+	dim dist_approccio as integer
+
+	dist_approccio = 65
+	
+	Dim motor_state As Integer
+	Dim curr_pos As Position
+
+	Dim x as single
+	Dim z as single
+
+'	Acquire the motor on status
+	motor_state = MotorState
+ 
+
+	fwd_out_of_area = 1 
+' 	wait DEBUG_MODE=1 or enable_in = 1
+
+	fwd_in_pos = 0
+
+
+	' switch case per la scelta dei punti di passaggio in base alla missione robot
+	' ---------------------------------------------------------------------------------------------------------
+	' 							MOVIMENTAZIONE VERSO IL PUNTO DI APPROCCIO
+	' ---------------------------------------------------------------------------------------------------------
+
+	' IN BASE ALLA MISSIONE RICHIESTA AL ROBOT, IMPOSTO I PUNTI DI PASSAGGIO
+
+	speed_param_approccio = 50 
+
+	Approach P, pt, @P dist_approccio, S = 100
+		
+	
+	' ATTESA SEGNALE DI ABILITAZIONE ALL'INGRESSO DEL ROBOT
+
+	wait DEBUG_MODE=1 or (plc_enable_in = ON)  or (IO[UI611_homing] = ON)  ' PLC 12.1
+
+	if IO[UI611_homing] = ON then
+		Exit Sub 
+	end if
+
+	' aspetto che inizi la rampa di accellerazione per comunicare al PLC che sto nell'area di ingombro
+	WaitMotion 5	
+	' setto a 0 il bit per informare il PLC che sono in ingombro
+	fwd_out_of_area = 0 ' PLC 44.2
+
+	' ---------------------------------------------------------------------------------------------------------
+	' 						MOVIMENTAZIONE VERSO IL PUNTO DI LAVORO (PICK/PLACE)
+	' ---------------------------------------------------------------------------------------------------------
+
+
+	Move L, @0 pt, s=20
+
+
+	' attesa dell'avenuta movimentazione
+	WaitMotion 5
+	delay 100
+
+	'informo il plc che sono arrivato a destinazione in modo che possa chiudere le pinze
+	fwd_in_pos = 1 'PLC 44.1
+
+	' ATTESA SEGNALE DI ABILITAZIONE ALL'USCITA DEL ROBOT
+
+	wait DEBUG_MODE=1 or (enable_exit = ON)  or (IO[UI611_homing] = ON)  
+	if IO[UI611_homing] = ON then
+		Exit Sub 
+	end if
+
+	' ---------------------------------------------------------------------------------------------------------
+	' 						MOVIMENTAZIONE VERSO FUORI INGOBRO DEL PUNTO DI LAVORO (PICK/PLACE)
+	' ---------------------------------------------------------------------------------------------------------
+
+
+
+	Depart L, @P dist_approccio, S = 100
+			
+	
+
+	'aspetto che i motori inizino la decellerazione in tal caso imposto che sono fuori ingombro
+
+	fwd_out_of_area = 1
+
+	'r = resetAreaPLC()
+	fwd_in_pos = 0
+
+end Sub  
+
+
+
+' -----------------------------------------------------------------------------------
+' -------------------------------------HOMING----------------------------------------
+' -----------------------------------------------------------------------------------
+
+
+Sub m0010_Homing() 
+	' posizionamento in home e invio feedback posizione raggiunta
+	Dim actual_pos As Position
+
+	dim Length as single
+	dim ret_val as integer
+	Length = 30
+	
+	Dim motor_state As Integer
+
+'	Acquire the motor on status
+	motor_state = MotorState
+
+
+	' -----------------------------------------
+	' MOVIMENTAZIONE VERSO IL PTO DI HOME
+	' -----------------------------------------
+
+	actual_pos = CurPos
+	' SE L'ATTUALE POSIZIONE DEL ROBOT LO PERMETTE LO ALZO DI 60 cm
+	If OutRange(DevH(DestPos, P(0, 0, -Length))) = 0 Then
+		Depart P, Length
+	End If
+
+
+	' MOVIMENTAZIONE DEL ROBOT PRESSO IL PUNTO FINALE DI HOME
+	Move P, J[J0_Homing_Point]
+
+	fwd_robot_in_home = 1
+	fwd_out_of_area = 1
+	
+End sub
+
+
+' -----------------------------------------------------------------------------------
+' -----------------------   MISSIONE 1 : PRELIEVO   ---------------------------------
+' -----------------------------------------------------------------------------------
+
+Sub m0001_PickLamelle()
+	PrintDbg "Method Place su inserimento"
+	fwd_mission_running = 1
+
+	
+	Call moveOnPoint(p[P0_pick])
+
+	
+ 	' se tutto okay allora restituisco 1
+	fwd_mission_running = 0
+End Sub
+
+
+' -----------------------------------------------------------------------------------
+' -----------------------   MISSIONE 2 : DEPOSITO   ---------------------------------
+' -----------------------------------------------------------------------------------
+
+
+Sub m0002_PlaceLamelle()
+	PrintDbg "Method Place su inserimento"
+	fwd_mission_running = 1
+	
+	Call moveOnPoint(p[P1_place])
+	
+ 	' se tutto okay allora restituisco 1
+	fwd_mission_running = 0
 End Sub
